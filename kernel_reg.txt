@@ -1,0 +1,31 @@
+## another method with package CVST
+
+library(CVST)
+Y = train_data$price
+X = data.matrix(train_data[,variable_list])
+n = nrow(X) 
+data_cvst_train = constructData(X[1:n,], Y[1:n])
+
+X_test = data.matrix(test_data[,variable_list])
+Y_test = test_data$price
+data_cvst_test =constructData(X_test, Y_test)
+
+
+gamma = 1/4
+sigma = gamma
+krr = constructKRRLearner()
+params = list(kernel="rbfdot", sigma=sigma, lambda=0.1)
+
+
+reg_model = krr$learn(data_cvst_train, params)
+
+pred = krr$predict(reg_model, data_cvst_test)
+
+mean((pred - data_cvst_test$y)^2)
+
+
+library(KRLS)
+sigma = 1/gamma
+krr = krls(X[1:n,],Y[1:n], whichkernel = "gaussian", lambda = 0.1, sigma = sigma)
+pred = predict(krr, newdata = X_test)
+mean ((pred$fit - Y_test)^2)
