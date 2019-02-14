@@ -1,0 +1,482 @@
+---
+title: "R Notebook"
+author: "Zongjun Tan"
+output:
+  latex_engine: xelatex
+  html_document: defaulty
+  mainfont: Arial
+  pdf_document: default
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+
+```{r}
+library(tictoc)
+
+setwd("D:/Princeton_3rd/teaching_ORF525/hw/hw1/hw1_solution/code")
+filename <- 'train.data.csv'
+train_data <- read.csv(filename, header=TRUE)
+
+filename <- 'test.data.csv'
+test_data <- read.csv(filename, header=TRUE)
+
+
+cat(str(train_data))
+train_data$zipcode <- as.factor(train_data$zipcode)
+test_data$zipcode <- as.factor(test_data$zipcode)
+```
+
+```{r}
+######################
+# preprocessing:
+######################
+
+#standardize values of different variables, except for columns : zipcodes, X, id, date, 
+zipcode_idx = grep("zipcode", colnames(train_data))
+view_idx = grep("view", colnames(train_data))
+for (i in 4:ncol(train_data))
+{
+  if ((i != zipcode_idx) && (i != view_idx))
+  {
+    train_data[,i] = data.matrix( scale(train_data[,i], center = TRUE, scale = TRUE) )
+    test_data[,i] = data.matrix( scale( test_data[,i], center = TRUE, scale = TRUE))
+  }
+}
+
+```
+
+```{r}
+
+########### part a ######################
+fit.lm1 <- lm(price ~ bedrooms + bathrooms + sqft_living + sqft_lot, data = train_data)
+cat('in sample R2:\t', summary(fit.lm1)$r.squared, '\n')
+
+test.lm1.pred <- predict(fit.lm1, newdata = test_data)
+
+# out-of-sample R2
+SS.total <- sum((test_data$price - mean(test_data$price))^2)
+SS.residual <- sum( (test_data$price - test.lm1.pred)^2)
+test.lm1.rsq <- 1 - SS.residual / SS.total
+
+cat('out of sample R2',test.lm1.rsq)
+
+```
+
+```{r}
+############part b##########################
+# adding intersetion term
+#########################################
+fit.lm2 <- lm(price ~ bedrooms + bathrooms + sqft_living + sqft_lot+
+                      bedrooms * bathrooms + bedrooms * sqft_living + bedrooms * sqft_lot +
+                      bathrooms * sqft_living + bathrooms * sqft_lot +
+                      sqft_living * sqft_lot , data = train_data)
+cat('in sample R2:\t', summary(fit.lm2)$r.squared, '\n')
+
+# prediction 
+test.lm2.pred <- predict(fit.lm2, newdata = test_data)
+
+# out-of-sample R2
+SS.total <- sum((test_data$price - mean(test_data$price))^2)
+SS.residual <- sum( (test_data$price - test.lm2.pred)^2)
+test.lm2.rsq <- 1 - SS.residual / SS.total
+cat('out of sample R2:', test.lm2.rsq)
+
+
+
+```
+
+```{r}
+######################
+# Gaussian Kernel ridge regression on full sample 
+# varaibles : c('bathrooms', 'bedrooms', 'sqft_living', 'sqft_lot')
+#
+# Attention: for full training samples on 4 variables, it requires at least 5 - 20 mins !
+#
+#####################
+require(kernlab)
+require(Matrix)
+#require(bootSVD)
+
+krr.learn <- function (data, kernel, y, lambda) {
+  K <- kernelMatrix(kernel, data)
+  N <- nrow(K)
+  alpha <- solve(Matrix(K + diag(lambda, N))) %*% y
+  
+  #s <- fastSVD(K)
+  #singular<- s$d
+  return(list(data = data, kernel = kernel, alpha = alpha))
+}
+
+krr.predict <- function (new_data, krr) {
+  k <- kernelMatrix(krr$kernel, new_data, krr$data)
+  return(k %*% krr$alpha)
+}
+
+
+subsamples <- function(dataset, num_parts, variable_list)
+{
+  # split the data and then shuffle
+  idx = sample(rep(1:num_parts, length.out = nrow(dataset)))
+  
+  X = list()
+  Y = list()
+  for (i in 1:num_parts)
+  {
+    current_idx = which(idx == i)
+    X[[i]] = data.matrix( dataset[current_idx, variable_list])
+    Y[[i]]=  as.vector(   dataset[current_idx, c('price')])
+    #print(dim(X[[i]]))
+  }
+  return(list(X = X, Y = Y))
+}
+
+
+
+# kernel parameters
+gamma = 0.01/2
+lambda = 0.02
+my_kernel = rbfdot(sigma = gamma)
+
+# dependency variables
+variable_list = c('bathrooms', 'bedrooms', 'sqft_living', 'sqft_lot')
+
+
+# construction of subsamples (for time constraints)
+# 1. eually split the data into num_parts
+#   for debuging, we can try to split into 7 parts,
+#   kernel ridge regression takes about 5s for each subsample
+
+num_parts = 10
+sample_list = subsamples(train_data, num_parts, variable_list)
+X_train = sample_list$X
+Y_train = sample_list$Y
+
+
+# 3. full testing samples
+X_test = data.matrix(test_data[,variable_list])
+Y_test = as.vector( test_data$price)
+
+
+# 4. regression on subsamples, if num_parts = 1, then regression on full sample size
+mse_krr= rep(0, num_parts)
+R2_krr = rep(0,num_parts)
+for (i in 1:num_parts)
+{
+  cat('subsample set No:',i, '\n')
+  tic('krr with time: ') 
+  krr = krr.learn(X_train[[i]], my_kernel, Y_train[[i]], lambda)
+  toc()
+  pred = krr.predict(X_test, krr)
+  
+  #MSE
+  mse_krr[i] = mean((pred - Y_test)^2)
+  # compute out of sample R2
+  SS.total =  sum((Y_test - mean(Y_test))^2)
+  SS.residual = sum( (Y_test - pred)^2 )
+  R2_krr[i]= 1- SS.residual / SS.total
+  
+  cat('mean prediction eror (test_data):\t', mse_krr[[i]], '\n' )
+  cat('R2 on test_data:\t', R2_krr[[i]], '\n\n' )
+}
+
+
+cat('\n\nout-of-sample R2', median(R2_krr) )
+
+```
+
+```{r}
+# 5. cross validation 
+# for:
+#
+# lambda = 0.1
+# n_folds = 5
+# number of subsampels
+
+cv.krr <- function(dataset, kernel, y, lambda, folds = 5)
+{
+  # equally split the data into n_folds, shuffle the fold_index
+  fold_idx = sample(rep(1:folds, length.out = nrow(dataset)))
+  
+  mean_pred_error <- rep(0,folds)
+  R2<- rep(0,folds)
+  for (k in 1:folds)
+  { 
+    #cat('fold number:', k, '\n')
+    # extract subsamples
+    current_fold = which(fold_idx == k)
+    X_train = dataset[ -current_fold,]
+    Y_train = y[-current_fold]
+    
+    X_test = dataset[ current_fold,]
+    Y_test = y[current_fold]
+  
+    #tic('krr with time: ') 
+    krr = krr.learn(X_train, kernel, Y_train, lambda)
+    #toc()
+    pred = krr.predict(X_test, krr)
+    
+    mean_pred_error[k] <- mean( (Y_test - pred)^2 )
+    #cat('mean predictin error on test data:', mean_pred_error[k], '\n\n')
+    
+    SS.total <- sum((Y_test - mean(Y_test))^2)
+    SS.residual <- sum( (Y_test - pred)^2)
+    R2[k] <- 1 - SS.residual / SS.total
+  }
+  return(list(cv=mean(mean_pred_error), mse=mean_pred_error, R2= R2))
+}
+
+
+lambda = 0.02
+num_parts = 10
+sample_list = subsamples(train_data, num_parts, variable_list)
+X_train = sample_list$X
+Y_train = sample_list$Y
+
+cv_subsamples = rep(0, num_parts)
+cv_result_list = list()
+for (i in 1:num_parts)
+{
+  cat('\n subsample No', i,'\n')
+  tic('cross validation with time')
+  cv_result = cv.krr(X_train[[i]], my_kernel, Y_train[[i]], lambda = lambda, folds = 5)
+  toc()
+  
+  cv_result_list[[i]] = cv_result
+  cv_subsamples[i] = cv_result$cv
+  cat('CV:',cv_result$cv)
+}
+
+cat('\n\n report cv scores (median of 10 part sub-samples):', median(cv_subsamples))
+```
+
+```{r}
+### use cross validation to find lamda
+lambda_list = c(0.001, 0.01, 0.1, 1, 10)
+N_lambda = length(lambda_list)
+
+
+num_parts = 10
+sample_list = subsamples(train_data, num_parts, variable_list)
+X_train = sample_list$X
+Y_train = sample_list$Y
+
+cv_subsamples = matrix(0, nrow = N_lambda, ncol = num_parts)
+
+for (k in 1:N_lambda)
+{
+  lambda = lambda_list[k]
+  
+  cat('\n lambda=',lambda, '\t')
+  tic('cost time=')
+  for (i in 1:num_parts)
+  {
+    #cat('\n subsample No', i,'\n')
+    #tic('cross validation with time')
+    cv_result = cv.krr(X_train[[i]], my_kernel, Y_train[[i]], lambda = lambda, folds = 5)
+    #toc()
+    
+    cv_subsamples[k,i] = cv_result$cv
+    #cat('CV:',cv_result$cv)
+  }
+  toc()
+  
+  cat('CV', cv_subsamples[k,],'\n')
+}
+
+
+# pick the median as CV for a given lambda
+cv_lambda = apply(cv_subsamples, 1, median)
+cat('\n list of lambda values:',lambda_list)
+
+if (num_parts > 1){
+  cat('\n\n CV for each lambda (pick as median from sub-samples):', cv_lambda)
+}else{
+  cat('\n\n CV for 5 folds cross validation', cv_lambda)
+}
+```
+
+```{r}
+cat('\nlist of lambda values:',lambda_list)
+cat('\n\nthe best lambda =', lambda_list[which.min(cv_lambda)] )
+```
+
+```{r}
+############ part d :  ####################
+# linear regession with zipcode factor
+########################################
+fit.lm3 <- lm(price ~ bedrooms + 
+                      bathrooms + 
+                      sqft_living + 
+                      sqft_lot + 
+                      zipcode, 
+              data = train_data)
+
+cat('in sample R2', summary(fit.lm3)$r.squared, '\n')
+
+test.lm3.pred <- predict(fit.lm3, newdata = test_data)
+
+# out-of-sample R2
+SS.total <- sum((test_data$price - mean(test_data$price))^2)
+SS.residual <- sum( (test_data$price - test.lm3.pred)^2)
+test.lm3.rsq <- 1 - SS.residual / SS.total
+
+cat('out of sample R2',test.lm3.rsq)
+```
+
+```{r}
+########## part d :  #################
+# With zipcode factor
+# Gaussian kernel ridge with lambda = 0.5, gamma = 0.01
+####################################
+library(kernlab)
+library(Matrix)
+
+subsamples <- function(dataset, num_parts, variable_list)
+{
+  # split the data and then shuffle
+  idx = sample(rep(1:num_parts, length.out = nrow(dataset)))
+  
+  X = list()
+  Y = list()
+  for (i in 1:num_parts)
+  {
+    current_idx = which(idx == i)
+    X[[i]] = data.matrix( dataset[current_idx, variable_list])
+    Y[[i]]=  as.vector(   dataset[current_idx, c('price')])
+    #print(dim(X[[i]]))
+  }
+  return(list(X = X, Y = Y))
+}
+
+
+# kernel parameters
+gamma = 0.01/2
+lambda = 0.02
+my_kernel = rbfdot(sigma = gamma)
+
+# dependency variables
+variable_list = c('bathrooms', 'bedrooms', 'sqft_living', 'sqft_lot', 'zipcode')
+
+# number of parts
+num_parts = 3
+sample_list = subsamples(train_data, num_parts, variable_list)
+X_train = sample_list$X
+Y_train = sample_list$Y
+
+# full testing samples
+X_test = data.matrix(test_data[,variable_list])
+Y_test = as.vector( test_data$price)
+
+
+# regression on subsamples, if num_parts = 1, then regression on full sample size
+mse_krr= rep(0,num_parts)
+R2_krr = rep(0,num_parts)
+for (i in 1:num_parts)
+{
+  cat('subsample set No:',i, '\n')
+  tic('krr with time: ') 
+  krr = krr.learn(X_train[[i]], my_kernel, Y_train[[i]], lambda)
+  toc()
+  pred = krr.predict(X_test, krr)
+  
+  #MSE
+  mse_krr[i] = mean((pred - Y_test)^2)
+  # compute out of sample R2
+  SS.total =  sum((Y_test - mean(Y_test))^2)
+  SS.residual = sum( (Y_test - pred)^2 )
+  R2_krr[i]= 1- SS.residual / SS.total
+  
+  cat('mean prediction eror (test_data):\t', mse_krr[[i]], '\n' )
+  cat('R2 on test_data:\t', R2_krr[[i]], '\n\n' )
+}
+
+cat('\nselect the median R2 as the reported out-of-sample R2 for Krr\n')
+cat('out of sample R2 for Krr', median(R2_krr) )
+```
+
+```{r}
+
+########### part e ##################
+# spline regression 
+###################################
+
+
+filename <- 'train.data.csv'
+train_data <- read.csv(filename, header=TRUE)
+filename <- 'test.data.csv'
+test_data <- read.csv(filename, header=TRUE)
+train_data$zipcode <- as.factor(train_data$zipcode)
+test_data$zipcode <- as.factor(test_data$zipcode)
+
+
+# dependency variables
+variable_list = c('price', 'bathrooms', 'bedrooms', 'sqft_living', 'sqft_lot', 'zipcode')
+
+# creaate training data set
+knots <- quantile(train_data$sqft_living, p = seq(from=0.1, to=0.9, length.out = 9))
+cat('quatiles \t', knots)
+X_train = train_data[, variable_list]
+X_train['X_12'] = as.numeric(train_data$view == 0)
+X_train['X_14'] = train_data$sqft_living**2
+for (i in 1:9)
+{
+  str=paste0('X_',i)
+  X_train[str]= as.numeric ( (train_data$sqft_living - knots[i])^2 * ((train_data$sqft_living -knots[i]) >=0) )
+}
+
+cat('\ndimension of training data:', dim(X_train))
+
+# create testing data set
+knots_test <- quantile(test_data$sqft_living, p = seq(from=0.1, to=0.9, length.out = 9))
+X_test = test_data[, variable_list]
+X_test['X_12'] = as.numeric(test_data$view ==0)
+X_test['X_14'] = test_data$sqft_living**2
+for (i in 1:9)
+{
+  str = paste0('X_',i)
+  X_test[str] = as.numeric( (test_data$sqft_living - knots_test[i])**2 * ((test_data$sqft_living - knots_test[i]) >=0 ))
+}
+
+cat('\ndimension of testing data:', dim(X_test))
+
+
+# standardize training and testing data
+zipcode_idx = grep("zipcode", colnames(X_train))
+view_idx = grep("X_12", colnames(X_train))
+for (i in 1:ncol(X_train))
+{
+  if ((i != zipcode_idx) && (i != view_idx))
+  {
+    X_train[,i] = data.matrix( scale(X_train[,i], center = TRUE, scale = TRUE) )
+    X_test[,i] = data.matrix( scale( X_test[,i], center = TRUE, scale = TRUE))
+  }
+}
+
+
+# spline regression
+
+formula = as.formula(paste0("price~",paste0(names(X_train[,2:ncol(X_train)]),collapse="+")))
+fit.lm4 <- lm(formula = formula, data = X_train)
+
+
+cat('\n\nin sample R2\t', summary(fit.lm4)$r.squared)
+
+test.lm4.pred <- predict(fit.lm4, newdata = X_test)
+
+# out-of-sample R2
+SS.total <- sum((X_test$price - mean(X_test$price))^2)
+SS.residual <- sum( (X_test$price - test.lm4.pred)^2)
+test.lm4.rsq <- 1 - SS.residual / SS.total
+
+cat('\nout of sample R2\t',test.lm4.rsq)
+
+
+```
+
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).

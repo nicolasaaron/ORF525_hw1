@@ -29,3 +29,118 @@ sigma = 1/gamma
 krr = krls(X[1:n,],Y[1:n], whichkernel = "gaussian", lambda = 0.1, sigma = sigma)
 pred = predict(krr, newdata = X_test)
 mean ((pred$fit - Y_test)^2)
+
+
+
+
+
+### kernel method ##############
+
+library(KRLS)
+
+
+# set regression parameters
+lambda = 0.1 # an arbitary lambda is chosen
+gamma= 1/4
+# kernel regression bandwidth parameter
+# see documentation https://cran.r-project.org/web/packages/KRLS/KRLS.pdf
+sigma = 1/gamma 
+
+
+
+# we consider all factors (including different zipcodes)
+X=data.matrix( train_data[, 5:22])
+Y = train_data$price
+
+X_test =data.matrix( test_data[, 5:22])
+Y_test = test_data$price
+
+
+# Gaussian Kernel ridge regression
+# if debug flag is true, we randomly select 1000 samples from the data
+if (debug_flag) {
+  idx = sample(1:nrow(X), size= 3000)
+}else idx = 1:nrow(X)
+
+krr = krls(X[idx,],Y[idx], whichkernel = "gaussian", lambda = lambda, sigma = sigma)
+
+# compute out-sample prediction
+pred.out = predict(krr, newdata = X_test)
+
+# compute mean squared prediction error
+MSE = mean( (pred.out$fit - Y_test)^2 )
+
+# compute out of sample R2
+SS.total =  sum((Y_test - mean(Y_test))^2)
+SS.residual = sum( (Y_test - pred.out$fit)^2 )
+R2 = 1- SS.residual / SS.total
+
+
+# report the MSE and out-of-sample R2
+
+MSE
+R2
+
+
+##################################################################
+# use package krmm
+##################################################################
+
+require(KRMM)
+
+nfeatures=train_data[,4:22]
+dependence_formula=as.formula(paste0("price~",paste0(names(features[,2:19]),collapse="+")))
+
+debug_flag = TRUE
+if (debug_flag) {
+  idx = sample(1:nrow(train_data), size= 1000)
+}else idx = 1:nrow(train_data)
+
+X_train = data.matrix(train_data[idx, 5:22])
+Y_train = train_data[idx, 4]
+
+Gaussian_KRR_model_train = Kernel_Ridge_MM( Y_train=Y_train,
+                                            Matrix_covariates_train=X_train, 
+                                            method="RKHS", 
+                                            kernel='Gaussian',
+                                            rate_decay_kernel=lambda)
+											
+											
+#########################
+#cross validation
+#############################
+# 5. cross validation on subsamples
+
+cv.krr <- function(dataset, kernel, y, lambda, folds = 5)
+{
+  # equally split the data into n_folds, shuffle the fold_index
+  fold_idx = sample(rep(1:folds, length.out = nrow(dataset)))
+  
+  mean_pred_error <- rep(0,folds)
+  for (k in 1:folds)
+  { 
+    print('fold number:', k)
+    # extract subsamples
+    current_fold = which(fold_idx == k)
+    X_train = dataset[ -current_fold,]
+    Y_train = y[-current_fold,]
+    
+    X_test = dataset[ current_fold,]
+    Y_test = y[current_fold,]
+  
+    tic('krr with time: ') 
+    krr = krr.learn(X_train, kernel, Y_train, lambda)
+    toc()
+    pred = krr.predict(X_test, krr)
+    
+    pred_error[k] <- mean( (Y_test - pred)^2 )
+  }
+  return(list(cv=mean(pred_error), mse=mean_pred_error))
+}
+
+
+debug_train = data.matrix( train_data[:2000, variable_list] )
+debug_y = as.vector( train_data[:2000, 'price'])
+
+cv_result = cv.krr(debug_train, my_kernel, debug_y, lambda = 0.1, folds = 5)
+
