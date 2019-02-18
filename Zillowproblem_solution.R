@@ -1,14 +1,4 @@
----
-title: "Hw1 exo 4 solution"
-mainfont: Arial
-latex_engine: xelatex
-output:
-  html_document: default
-  pdf_document: default
----
-
-
-```{r}
+## ------------------------------------------------------------------------
 library(tictoc)
 
 filename <- 'train.data.csv'
@@ -20,9 +10,8 @@ test_data <- read.csv(filename, header=TRUE)
 cat(str(train_data))
 train_data$zipcode <- as.factor(train_data$zipcode)
 test_data$zipcode <- as.factor(test_data$zipcode)
-```
 
-```{r}
+## ------------------------------------------------------------------------
 
 ########### part a ######################
 variable_list = c('price','bathrooms', 'bedrooms', 'sqft_living', 'sqft_lot')
@@ -44,9 +33,8 @@ cat('\nout of sample R2',lm1.r2.out)
 
 
 
-```
 
-```{r}
+## ------------------------------------------------------------------------
 ############part b##########################
 # adding interaction terms
 #########################################
@@ -95,9 +83,8 @@ SS.residual <- sum( (test_data_new$price - fit.lm2.pred.out)^2)
 lm2.r2.out <- 1 - SS.residual / SS.total
 cat('out of sample R2:', lm2.r2.out)
 
-```
 
-```{r}
+## ------------------------------------------------------------------------
 ######################
 # Gaussian Kernel ridge regression on full sample 
 # varaibles : c('bathrooms', 'bedrooms', 'sqft_living', 'sqft_lot') and their interactions
@@ -172,9 +159,8 @@ subsamples <- function(X,num_parts,idx)
   return(X_list)
 }
 
-```
 
-```{r}
+## ------------------------------------------------------------------------
 ######################
 # preprocessing:
 ######################
@@ -188,9 +174,11 @@ preprocessing <- function(dataset, mu, std)
   }
   return(data.frame(dataset))
 }
-```
 
-```{r}
+
+
+
+## ------------------------------------------------------------------------
 # standardization
 mu_train = colMeans(train_data_new)
 std_train = apply( data.matrix(train_data_new), 2, sd)
@@ -200,10 +188,48 @@ test_data_new <- data.frame( preprocessing( test_data_new, mu_train, std_train) 
 # contruct kernel
 gamma = 0.01/2
 my_kernel = rbfdot(sigma = gamma)
-```
 
+## ------------------------------------------------------------------------
+##############################################
+# # cross validation for a given lambda
+# # parameter set
+#
+# gamma = 0.01/2
+# lambda = 0.1
+# n_folds = 5
+# num_parts = 10   # number of subsampels
+################################################
+lambda = 0.1
+#print(lambda)
 
-```{r}
+# construction of subsamples (for time constraints)
+# 1. eually split the data into num_parts
+#   for debuging, we can try to split into 10 parts,
+#   kernel ridge regression takes about 5s for each subsample
+num_parts = 10
+set.seed(0)
+idx = sample(rep(1:num_parts, length.out = nrow(train_data_new)))
+X_train =subsamples(train_data_new[,-1], num_parts, idx) 
+Y_train =subsamples(train_data_new[, 'price'], num_parts, idx)
+
+cv_subsamples = rep(0, num_parts)
+cv_result_list = list()
+for (i in 1:num_parts)
+{
+  cat('\nsubsample No', i,'\t')
+  #tic('cross validation with time')
+  cv_result = cv.krr(X_train[[i]], my_kernel, Y_train[[i]], 
+                     lambda = lambda, folds = 5)
+  #toc()
+  
+  cv_result_list[[i]] = cv_result
+  cv_subsamples[i] = cv_result$cv
+  cat('CV:',cv_result$cv)
+}
+
+cat('\n\n report cv scores (median of 10 part sub-samples):', median(cv_subsamples))
+
+## ------------------------------------------------------------------------
 ###############################################
 ### use cross validation to find best lamda
 ##############################################
@@ -243,9 +269,8 @@ for (k in 1:N_lambda)
   
   cat('CV score for subsamples:\n', cv_subsamples[k,],'\n')
 }
-```
 
-```{r}
+## ------------------------------------------------------------------------
 ########################
 # output  best lambda
 #######################
@@ -255,21 +280,65 @@ cv_lambda = apply(cv_subsamples, 1, median)
 cat('\n list of lambda values:',lambda_list)
 
 if (num_parts > 1){
-  cat('\n\n CV for each lambda (pick as median from sub-samples):\n', cv_lambda)
+  cat('\n\n CV for each lambda (pick as median from sub-samples):', cv_lambda)
 }else{
-  cat('\n\n CV for 5 folds cross validation score:\n', cv_lambda)
+  cat('\n\n CV for 5 folds cross validation score', cv_lambda)
 }
 
+cat('\nlist of lambda values:',lambda_list)
 cat('\n\nthe best lambda =', lambda_list[which.min(cv_lambda)] )
-```
+
+## ------------------------------------------------------------------------
+#################################################
+# run with the best lambda 
+######################################
+lambda.min = lambda_list[which.min(cv_lambda)]
+#lambda = 0.1
+
+num_parts = 10
+set.seed(0)
+idx = sample(rep(1:num_parts, length.out = nrow(train_data_new)))
+X_train =subsamples(train_data_new[,-1], num_parts, idx) 
+Y_train =subsamples(train_data_new[, 'price'], num_parts, idx)
+
+X_test = data.matrix(test_data_new[,-1])
+Y_test = data.matrix(test_data_new$price)
 
 
-```{r}
+# 4. regression on subsamples, if num_parts = 1, then regression on full sample size
+mse_krr= rep(0, num_parts)
+R2_krr = rep(0,num_parts)
+for (i in 1:num_parts)
+{
+  cat('\n\nsubsample set No:',i, '\n')
+  tic('krr with time: ') 
+  krr = krr.learn(X_train[[i]], my_kernel, Y_train[[i]], lambda)
+  toc()
+  pred = krr.predict(X_test, krr)
+  
+  #MSE
+  mse_krr[i] = mean((pred - Y_test)^2)
+  # compute out of sample R2
+  SS.total =  sum((Y_test - mean(Y_train[[i]]))^2)
+  SS.residual = sum( (Y_test - pred)^2 )
+  R2_krr[i]= 1- SS.residual / SS.total
+  
+  #cat('mean prediction eror (test_data):\t', mse_krr[[i]], '\n' )
+  #cat('R2 on test_data:\t', R2_krr[[i]], '\n\n' )
+}
+
+
+cat('\n\nout-of-sample R2 (median from subsamples)', median(R2_krr) )
+
+## ------------------------------------------------------------------------
 #################################################
 # run on whole sample using the best lambda
 ################################################
-
+flag_run_on_whole = TRUE
+if (flag_run_on_whole)
+{
 lambda.min = lambda_list[which.min(cv_lambda)]
+#lambda.min = 0.1
 
 # construct traing data and testing data
 X_train =data.matrix(train_data_new[,-1])
@@ -294,10 +363,9 @@ r2_krr.out= 1- SS.residual / SS.total
 
 cat('out of sample rmse:\t', rmse_krr.out)
 cat('\nout of sample R2:\t', r2_krr.out,'\n')
+}
 
-```
-
-```{r}
+## ------------------------------------------------------------------------
 ############ part d :  ####################
 # linear regession with zipcode factor
 ########################################
@@ -345,10 +413,8 @@ SS.residual <- sum( (test_data$price - fit.lm3.pred.out)^2)
 lm3.r2.out <- 1 - SS.residual / SS.total
 
 cat('out of sample R2', lm3.r2.out)
-```
 
-
-```{r}
+## ------------------------------------------------------------------------
 
 ########### part e ##################
 # spline regression 
@@ -385,9 +451,24 @@ for (i in 1:9)
 
 cat('\ndimension of testing data:', dim(test_data_new))
 
-```
 
-```{r}
+
+# standardize training and testing data
+#zipcode_idx = grep("zipcode", colnames(train_data_new))
+#view_idx = grep("X_12", colnames(train_data_new))
+#for (i in 1:ncol(train_data_new))
+#{
+#  if ((i != zipcode_idx) && (i != view_idx))
+#  {
+#    train_data_new[,i] = data.matrix( scale(train_data_new[,i], 
+#                                            center = TRUE, scale = TRUE) )
+#    test_data_new[,i] = data.matrix( scale( test_data_new[,i], 
+#                                            center = TRUE, scale = TRUE))
+#  }
+#}
+
+
+## ------------------------------------------------------------------------
 ######################
 # spline regression
 ######################
@@ -407,11 +488,8 @@ lm4.r2.out <- 1 - SS.residual / SS.total
 
 cat('\nout of sample R2\t',lm4.r2.out)
 
-```
 
-
-```{r eval=FALSE}
-library(knitr)
-purl(input='Zillowproblem_solution.Rmd', output='Zillowproblem_solution.R')
-```
+## ----eval=FALSE----------------------------------------------------------
+## library(knitr)
+## purl(input='Zillowproblem_solution.Rmd', output='Zillowproblem_solution.R')
 

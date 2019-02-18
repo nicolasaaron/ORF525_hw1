@@ -1,0 +1,101 @@
+##############################################
+# # cross validation for a given lambda
+# # parameter set
+#
+# gamma = 0.01/2
+# lambda = 0.1
+# n_folds = 5
+# num_parts = 10   # number of subsampels
+################################################
+lambda = 0.1
+#print(lambda)
+
+# construction of subsamples (for time constraints)
+# 1. eually split the data into num_parts
+#   for debuging, we can try to split into 10 parts,
+#   kernel ridge regression takes about 5s for each subsample
+num_parts = 10
+set.seed(0)
+idx = sample(rep(1:num_parts, length.out = nrow(train_data_new)))
+X_train =subsamples(train_data_new[,-1], num_parts, idx) 
+Y_train =subsamples(train_data_new[, 'price'], num_parts, idx)
+
+cv_subsamples = rep(0, num_parts)
+cv_result_list = list()
+for (i in 1:num_parts)
+{
+  cat('\nsubsample No', i,'\t')
+  #tic('cross validation with time')
+  cv_result = cv.krr(X_train[[i]], my_kernel, Y_train[[i]], 
+                     lambda = lambda, folds = 5)
+  #toc()
+  
+  cv_result_list[[i]] = cv_result
+  cv_subsamples[i] = cv_result$cv
+  cat('CV:',cv_result$cv)
+}
+
+cat('\n\n report cv scores (median of 10 part sub-samples):', median(cv_subsamples))
+
+
+```{r}
+#################################################
+# run with the best lambda 
+######################################
+lambda.min = lambda_list[which.min(cv_lambda)]
+#lambda = 0.1
+
+num_parts = 10
+set.seed(0)
+idx = sample(rep(1:num_parts, length.out = nrow(train_data_new)))
+X_train =subsamples(train_data_new[,-1], num_parts, idx) 
+Y_train =subsamples(train_data_new[, 'price'], num_parts, idx)
+
+X_test = data.matrix(test_data_new[,-1])
+Y_test = data.matrix(test_data_new$price)
+
+
+# 4. regression on subsamples, if num_parts = 1, then regression on full sample size
+mse_krr= rep(0, num_parts)
+R2_krr = rep(0,num_parts)
+for (i in 1:num_parts)
+{
+  cat('\n\nsubsample set No:',i, '\n')
+  tic('krr with time: ') 
+  krr = krr.learn(X_train[[i]], my_kernel, Y_train[[i]], lambda)
+  toc()
+  pred = krr.predict(X_test, krr)
+  
+  #MSE
+  mse_krr[i] = mean((pred - Y_test)^2)
+  # compute out of sample R2
+  SS.total =  sum((Y_test - mean(Y_train[[i]]))^2)
+  SS.residual = sum( (Y_test - pred)^2 )
+  R2_krr[i]= 1- SS.residual / SS.total
+  
+  #cat('mean prediction eror (test_data):\t', mse_krr[[i]], '\n' )
+  #cat('R2 on test_data:\t', R2_krr[[i]], '\n\n' )
+}
+
+
+cat('\n\nout-of-sample R2 (median from subsamples)', median(R2_krr) )
+```
+
+
+
+###########################################################
+
+
+# standardize training and testing data
+#zipcode_idx = grep("zipcode", colnames(train_data_new))
+#view_idx = grep("X_12", colnames(train_data_new))
+#for (i in 1:ncol(train_data_new))
+#{
+#  if ((i != zipcode_idx) && (i != view_idx))
+#  {
+#    train_data_new[,i] = data.matrix( scale(train_data_new[,i], 
+#                                            center = TRUE, scale = TRUE) )
+#    test_data_new[,i] = data.matrix( scale( test_data_new[,i], 
+#                                            center = TRUE, scale = TRUE))
+#  }
+#}

@@ -1,12 +1,4 @@
----
-title: "Hw1 exo3 solution"
-mainfont: Arial
-output:
-  html_document: default
-  pdf_document: default
----
-
-```{r}
+## ------------------------------------------------------------------------
 library(tictoc)
 
 filename <- 'macro.csv'
@@ -38,9 +30,8 @@ lag1_Unrate = Unrate[1:n-1]
 X = cbind(lag1_PCE, lag1_Unrate, DIndPro, DM2, DCPI, DSPY, HouSta[2:n], FedFund[2:n]) #present data
 colnames(X) = list("lag1_logPCE", "lag1_Unrate", "DIndPro", "DM2","DCPI", "DSPY", "HouSta", "FedFund") #give covariates names
 
-```
 
-```{r}
+## ------------------------------------------------------------------------
 #Learning/training and testing sets (last ten years)
 
 n = length(Y)
@@ -52,34 +43,29 @@ X.T = X[(n-119):n,] #testing set
 data_train = data.frame(Unrate=Y.L, X.L) #give Y.L the name Unrate.
 data_test = data.frame(X.T)
 
-```
 
-```{r}
+## ------------------------------------------------------------------------
 #Least-squares fit
 fitted=lm(Unrate ~ ., data=data_train) #fit model using learning 
 summary(fitted)
 
-```
 
-```{r}
+## ------------------------------------------------------------------------
 # out of sample R2
 Y.pred.fitted = predict(fitted, newdata= data_test)
 SS.total <- sum( (Y.T- mean(Y.L))^2)  # mean square of "testing label - mean (training labels)"
 SS.residual <- sum( (Y.T - Y.pred.fitted)^2)
 1 - SS.residual / SS.total
 
-```
 
-```{r}
+## ------------------------------------------------------------------------
 #########################
 # part b: variable selection
 ############################
 M <- step(fitted, data=data_train, direction="backward")
 summary(M)
-```
 
-
-```{r}
+## ------------------------------------------------------------------------
 #################
 # part c
 ################
@@ -89,18 +75,16 @@ MADE = mean(abs(Y.pred - Y.T))
 
 cat('root mean squared error:', RMSE, '\nmean absolute deviation error:', MADE)
 
-```
 
-```{r}
+## ------------------------------------------------------------------------
 ###############
 # part d
 ###############
 M.values = M$fitted.values #extract fitted values
 residuals = M$residuals #extract residuals
 std.res = ls.diag(M)$std.res #standardized residuals
-```
 
-```{r}
+## ------------------------------------------------------------------------
 #pdf("Fig_exo3_part_d_1.pdf", width=8, height=2, pointsize=10)
 
 par(mfrow = c(1,2), mar=c(2, 4, 1.5,1)+0.1, cex=0.8)
@@ -110,9 +94,8 @@ lines(Month[(n-119):n], Y.pred, lty=2, col="blue") #predicted values
 plot(Month[1:(n-120)], Y.L, type="l", col="red", lwd=2) #actual
 lines(Month[1:(n-120)], M.values, lty=2, col="blue") #fitted
 title("(b) Fitted and actual ECP")
-```
 
-```{r}
+## ------------------------------------------------------------------------
 # QQ plot
 
 #pdf("Fig_exo3_part_d_2.pdf", width=8, height=4, pointsize=10)
@@ -130,9 +113,8 @@ title("(c) Standardized residuals")
 
 qqnorm(std.res, col="blue", main="(d) Q-Q plot for std.res")
 qqline(std.res, col="red")
-```
 
-```{r}
+## ------------------------------------------------------------------------
 ##########################################
 # part e Gaussian Kernel ridge regression
 ##########################################
@@ -201,9 +183,8 @@ preprocessing <- function(dataset, mu, std)
 }
 
 
-```
 
-```{r}
+## ------------------------------------------------------------------------
 
 #(optional: for standarization)
 # standardize the data
@@ -245,9 +226,8 @@ cat('\nlambda:', lambda_list)
 cat('\n\nmean r2 for different lambda:\t', mean_r2)
 cat('\n\nmean mse for different lambda:\t', mean_mse)
 
-```
 
-```{r}
+## ------------------------------------------------------------------------
 #pdf("Fig_exo3_part_e.pdf", width=8, height=4, pointsize=10)
 
 par(mar = c(4, 5, 2, 5) + 0.5)  # Leave space for z axis
@@ -267,9 +247,8 @@ legend("topleft",legend=c("mean R2","mean MSE"),
   text.col=c("blue","red"),pch=c(16,15),col=c("blue","red"))
 
 
-```
 
-```{r}
+## ------------------------------------------------------------------------
 # pick the lambda with the minimum mean mse
 idx = which.min(mean_mse)
 best_lambda = lambda_list[idx]
@@ -308,11 +287,9 @@ R2.krr=  1- SS.residual / SS.total
 cat('\nout of sample RMSE:\t', rmse.krr)
 cat('\nout of sample R2:\t', R2.krr)
 
-```
 
-```{r,eval=FALSE}
-library(knitr)
-purl(input='exo3_solution.Rmd', output='exo3_solution.R')
-
-```
+## ----eval=FALSE----------------------------------------------------------
+## library(knitr)
+## purl(input='exo3_solution.Rmd', output='exo3_solution.R')
+## 
 
